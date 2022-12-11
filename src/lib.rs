@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use cgmath::{Matrix4, Vector2};
+use cgmath::{InnerSpace, Matrix3, Matrix4, Vector2, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::{Event, MouseButton, WindowEvent};
 use winit::{event_loop::EventLoop, window::Window};
@@ -75,22 +75,21 @@ impl Default for CameraController {
     }
 }
 
-const VERTICIES: &[Vertex] = &[
-    Vertex {
-        pos: [0.0, 1.0, 0.0],
-        color: [1.0, 0.0, 0.0],
-    },
-    Vertex {
-        pos: [-0.866, -0.5, 0.0],
-        color: [0.0, 1.0, 0.0],
-    },
-    Vertex {
-        pos: [0.866, -0.5, 0.0],
-        color: [0.0, 0.0, 1.0],
-    },
-];
+fn hyperpoint([x, y]: [f32; 2]) -> [f32; 3] {
+    let w = (1.0 + x * x + y * y).sqrt();
+    [x, y, w]
+}
 
-const INDICIES: &[u32] = &[0, 1, 2];
+fn translation(pos: Vector2<f64>) -> Matrix4<f64> {
+    let w = (1.0 + pos.magnitude2()).sqrt();
+    let col = (pos / (w + 1.0)).extend(1.0);
+    Matrix3::from_cols(
+        col * pos.x + Vector3::unit_x(),
+        col * pos.y + Vector3::unit_y(),
+        pos.extend(w),
+    )
+    .into()
+}
 
 pub async fn run(event_loop: EventLoop<()>, window: Window) {
     let size = window.inner_size();
@@ -135,16 +134,30 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut camera = Camera::new(size.width as f64 / size.height as f64);
     let mut camera_bind_group = CameraBindGroup::new(&device, &pipeline.layout.camera, &camera);
 
+    let vertex = [
+        Vertex {
+            pos: hyperpoint([0.0, 1.0]),
+            color: [1.0, 0.0, 0.0],
+        },
+        Vertex {
+            pos: hyperpoint([-0.866, -0.5]),
+            color: [0.0, 1.0, 0.0],
+        },
+        Vertex {
+            pos: hyperpoint([0.866, -0.5]),
+            color: [0.0, 0.0, 1.0],
+        },
+    ];
     let vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
         usage: wgpu::BufferUsages::VERTEX,
-        contents: bytemuck::cast_slice(VERTICIES),
+        contents: bytemuck::cast_slice(&vertex),
     });
 
     let index = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
         usage: wgpu::BufferUsages::INDEX,
-        contents: bytemuck::cast_slice(INDICIES),
+        contents: bytemuck::cast_slice(&[0, 1, 2]),
     });
 
     event_loop.run(move |event, _, control_flow| {
@@ -179,8 +192,7 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                 if let Some(delta) = camera_controller.update(Vector2::new(position.x, -position.y))
                 {
                     camera.transform =
-                        Matrix4::from_translation((delta * 2.0 / config.height as f64).extend(0.0))
-                            * camera.transform;
+                        translation(delta * 2.0 / config.height as f64) * camera.transform;
                     camera_bind_group.update(&queue, &camera);
                     window.request_redraw();
                 }

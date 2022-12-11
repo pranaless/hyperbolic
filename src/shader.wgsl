@@ -19,6 +19,7 @@ fn vs_main(
     @location(1) color: vec3<f32>,
 ) -> VertexOutput {
     let pos = camera.transform * vec4<f32>(pos, 1.0);
+    let pos = vec4<f32>(pos.xy / (1.0 + pos.z), 0.0, 1.0);
     var output: VertexOutput;
     output.pos = camera.viewport * pos;
     output.color = color;
