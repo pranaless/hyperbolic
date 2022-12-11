@@ -133,7 +133,6 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
 
     let mut camera_controller = CameraController::new();
     let mut camera = Camera::new(size.width as f64 / size.height as f64);
-    camera.transform = Matrix4::from_translation(Vector3::new(0.5, 0.5, 0.0));
     let mut camera_bind_group = CameraBindGroup::new(&device, &pipeline.layout.camera, &camera);
 
     let vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
