@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use cgmath::{Matrix4, Vector2, Vector3};
+use cgmath::{Matrix4, Vector2};
 use wgpu::util::DeviceExt;
 use winit::event::{Event, MouseButton, WindowEvent};
 use winit::{event_loop::EventLoop, window::Window};
