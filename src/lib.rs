@@ -1,14 +1,49 @@
+use std::num::ParseIntError;
+use std::str::FromStr;
+
 use bytemuck::{Pod, Zeroable};
 use cgmath::{InnerSpace, Matrix3, Matrix4, Vector2, Vector3};
+use tiling::TilingGenerator;
 use wgpu::util::DeviceExt;
-use winit::event::{Event, MouseButton, WindowEvent};
+use wgpu::Device;
+use winit::event::{ElementState, Event, KeyboardInput, MouseButton, WindowEvent};
 use winit::{event_loop::EventLoop, window::Window};
 
 pub mod camera;
 pub mod pipeline;
+pub mod tiling;
 
 use camera::{Camera, CameraBindGroup};
 use pipeline::Pipeline;
+
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[repr(C)]
+pub struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+impl FromStr for Color {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let n = u32::from_str_radix(s, 16)?;
+        Ok(Color {
+            r: (n >> 16) as _,
+            g: (n >> 8) as _,
+            b: n as _,
+        })
+    }
+}
+impl From<Color> for [f32; 3] {
+    fn from(color: Color) -> Self {
+        [
+            color.r as f32 / 255.0,
+            color.g as f32 / 255.0,
+            color.b as f32 / 255.0,
+        ]
+    }
+}
 
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
@@ -33,6 +68,27 @@ impl Vertex {
             },
         ],
     };
+}
+
+pub struct Mesh {
+    vertex: wgpu::Buffer,
+    index: wgpu::Buffer,
+}
+impl Mesh {
+    pub fn new(device: &Device, (vertex, index): (Vec<Vertex>, Vec<u32>)) -> Self {
+        let vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            usage: wgpu::BufferUsages::VERTEX,
+            contents: bytemuck::cast_slice(&vertex),
+        });
+
+        let index = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            usage: wgpu::BufferUsages::INDEX,
+            contents: bytemuck::cast_slice(&index),
+        });
+        Mesh { vertex, index }
+    }
 }
 
 pub struct CameraController {
@@ -75,12 +131,12 @@ impl Default for CameraController {
     }
 }
 
-fn hyperpoint([x, y]: [f32; 2]) -> [f32; 3] {
+fn hyperpoint(x: f32, y: f32) -> Vector3<f32> {
     let w = (1.0 + x * x + y * y).sqrt();
-    [x, y, w]
+    Vector3::new(x, y, w)
 }
 
-fn translation(pos: Vector2<f64>) -> Matrix4<f64> {
+pub fn translation(pos: Vector2<f64>) -> Matrix3<f64> {
     let w = (1.0 + pos.magnitude2()).sqrt();
     let col = (pos / (w + 1.0)).extend(1.0);
     Matrix3::from_cols(
@@ -88,7 +144,6 @@ fn translation(pos: Vector2<f64>) -> Matrix4<f64> {
         col * pos.y + Vector3::unit_y(),
         pos.extend(w),
     )
-    .into()
 }
 
 pub async fn run(event_loop: EventLoop<()>, window: Window) {
@@ -134,31 +189,12 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut camera = Camera::new(size.width as f64 / size.height as f64);
     let mut camera_bind_group = CameraBindGroup::new(&device, &pipeline.layout.camera, &camera);
 
-    let vertex = [
-        Vertex {
-            pos: hyperpoint([0.0, 1.0]),
-            color: [1.0, 0.0, 0.0],
-        },
-        Vertex {
-            pos: hyperpoint([-0.866, -0.5]),
-            color: [0.0, 1.0, 0.0],
-        },
-        Vertex {
-            pos: hyperpoint([0.866, -0.5]),
-            color: [0.0, 0.0, 1.0],
-        },
-    ];
-    let vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: None,
-        usage: wgpu::BufferUsages::VERTEX,
-        contents: bytemuck::cast_slice(&vertex),
-    });
-
-    let index = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: None,
-        usage: wgpu::BufferUsages::INDEX,
-        contents: bytemuck::cast_slice(&[0, 1, 2]),
-    });
+    let mut depth = 5;
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut tiling = TilingGenerator::open("4,5-tiling").unwrap();
+    #[cfg(target_arch = "wasm32")]
+    let tiling = TilingGenerator::new(include_str!("4,5-tiling.txt"));
+    let mut mesh = Mesh::new(&device, tiling.generate(depth));
 
     event_loop.run(move |event, _, control_flow| {
         let _ = (&instance, &adapter, &pipeline);
@@ -178,13 +214,46 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
             }
             Event::WindowEvent {
                 event:
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                scancode, state, ..
+                            },
+                        ..
+                    },
+                ..
+            } => {
+                if matches!(state, ElementState::Pressed) {
+                    match scancode {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        19 /* R */ => {
+                            tiling = TilingGenerator::open("4,5-tiling").unwrap();
+                            mesh = Mesh::new(&device, tiling.generate(depth));
+                            window.request_redraw();
+                        }
+                        103 /* Up */ => {
+                            depth += 1;
+                            mesh = Mesh::new(&device, tiling.generate(depth));
+                            window.request_redraw();
+                        }
+                        108 /* Up */ => {
+                            depth -= 1;
+                            mesh = Mesh::new(&device, tiling.generate(depth));
+                            window.request_redraw();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Event::WindowEvent {
+                event:
                     WindowEvent::MouseInput {
                         state,
                         button: MouseButton::Left,
                         ..
                     },
                 ..
-            } => camera_controller.set_track(winit::event::ElementState::Pressed == state),
+            } => camera_controller.set_track(ElementState::Pressed == state),
             Event::WindowEvent {
                 event: WindowEvent::CursorMoved { position, .. },
                 ..
@@ -192,7 +261,8 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                 if let Some(delta) = camera_controller.update(Vector2::new(position.x, -position.y))
                 {
                     camera.transform =
-                        translation(delta * 2.0 / config.height as f64) * camera.transform;
+                        Matrix4::from(translation(delta * 2.0 / config.height as f64))
+                            * camera.transform;
                     camera_bind_group.update(&queue, &camera);
                     window.request_redraw();
                 }
@@ -221,9 +291,9 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                     });
                     rpass.set_pipeline(&pipeline);
                     rpass.set_bind_group(0, &camera_bind_group, &[]);
-                    rpass.set_vertex_buffer(0, vertex.slice(..));
-                    rpass.set_index_buffer(index.slice(..), wgpu::IndexFormat::Uint32);
-                    rpass.draw_indexed(0..3, 0, 0..1);
+                    rpass.set_vertex_buffer(0, mesh.vertex.slice(..));
+                    rpass.set_index_buffer(mesh.index.slice(..), wgpu::IndexFormat::Uint32);
+                    rpass.draw_indexed(0..(mesh.index.size() / 4) as _, 0, 0..1);
                 }
                 queue.submit(Some(encoder.finish()));
                 frame.present();
