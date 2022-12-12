@@ -1,14 +1,77 @@
 use std::ops::Deref;
 
 use bytemuck::{Pod, Zeroable};
-use cgmath::{Matrix4, One};
-use wgpu::{util::DeviceExt, Device};
+use cgmath::{Matrix4, One, Vector2};
+use wgpu::{util::DeviceExt, Device, Queue};
+
+use crate::{translation, Surface, Window};
 
 pub struct Camera {
+    pub bind_group: CameraBindGroup,
+    controller: CameraController,
+    tracker: CameraTracker,
+}
+impl Camera {
+    pub fn new(device: &Device, layout: &CameraBindGroupLayout, aspect_ratio: f64) -> Self {
+        let tracker = CameraTracker::new(aspect_ratio);
+        let bind_group = CameraBindGroup::new(device, layout, &tracker);
+        Camera {
+            tracker,
+            bind_group,
+            controller: CameraController::new(),
+        }
+    }
+
+    pub fn update_viewport(&mut self, queue: &Queue, aspect_ratio: f64) {
+        self.tracker.update_viewport(aspect_ratio);
+        self.bind_group.update(queue, &self.tracker);
+    }
+
+    pub fn update_delta<W: Window>(
+        &mut self,
+        queue: &Queue,
+        surface: &Surface<W>,
+        pos: Vector2<f64>,
+    ) {
+        if let Some(delta) = self.controller.update(pos) {
+            self.tracker.translate(delta * 2.0 / surface.size().y);
+            self.bind_group.update(queue, &self.tracker);
+            surface.window.request_redraw();
+        }
+    }
+
+    pub fn reset_delta(&mut self) {
+        self.controller.reset();
+    }
+}
+
+pub struct CameraController {
+    value: Option<Vector2<f64>>,
+}
+impl CameraController {
+    pub fn new() -> Self {
+        CameraController { value: None }
+    }
+
+    pub fn update(&mut self, pos: Vector2<f64>) -> Option<Vector2<f64>> {
+        self.value.replace(pos).map(|old| pos - old)
+    }
+
+    pub fn reset(&mut self) {
+        self.value = None;
+    }
+}
+impl Default for CameraController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct CameraTracker {
     viewport: Matrix4<f64>,
     pub transform: Matrix4<f64>,
 }
-impl Camera {
+impl CameraTracker {
     #[rustfmt::skip]
     fn ortho(aspect: f64) -> Matrix4<f64> {
         Matrix4::new(
@@ -20,7 +83,7 @@ impl Camera {
     }
 
     pub fn new(aspect: f64) -> Self {
-        Camera {
+        CameraTracker {
             viewport: Self::ortho(aspect),
             transform: Matrix4::one(),
         }
@@ -28,6 +91,10 @@ impl Camera {
 
     pub fn update_viewport(&mut self, aspect: f64) {
         self.viewport = Self::ortho(aspect);
+    }
+
+    pub fn translate(&mut self, delta: Vector2<f64>) {
+        self.transform = Matrix4::from(translation(delta)) * self.transform;
     }
 }
 
@@ -38,7 +105,7 @@ pub struct CameraUniform {
     transform: [f32; 16],
 }
 impl CameraUniform {
-    pub fn new(camera: &Camera) -> Self {
+    pub fn new(camera: &CameraTracker) -> Self {
         CameraUniform {
             viewport: *camera.viewport.cast().unwrap().as_ref(),
             transform: *camera.transform.cast().unwrap().as_ref(),
@@ -81,7 +148,7 @@ pub struct CameraBindGroup {
     bind_group: wgpu::BindGroup,
 }
 impl CameraBindGroup {
-    pub fn new(device: &Device, layout: &CameraBindGroupLayout, camera: &Camera) -> Self {
+    pub fn new(device: &Device, layout: &CameraBindGroupLayout, camera: &CameraTracker) -> Self {
         let uniform = CameraUniform::new(camera);
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -99,7 +166,7 @@ impl CameraBindGroup {
         CameraBindGroup { buffer, bind_group }
     }
 
-    pub fn update(&mut self, queue: &wgpu::Queue, camera: &Camera) {
+    pub fn update(&mut self, queue: &Queue, camera: &CameraTracker) {
         queue.write_buffer(
             &self.buffer,
             0,
