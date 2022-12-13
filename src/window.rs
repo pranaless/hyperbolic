@@ -7,7 +7,10 @@ use raw_window_handle::{
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
-use crate::Window;
+pub trait Window: HasRawWindowHandle + HasRawDisplayHandle {
+    fn size(&self) -> Vector2<u32>;
+    fn request_redraw(&self);
+}
 
 #[wasm_bindgen]
 pub struct AppWindow {

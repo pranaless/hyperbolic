@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use cgmath::{Matrix4, One, Vector2};
 use wgpu::{util::DeviceExt, Device, Queue};
 
-use crate::{translation, Surface, Window};
+use crate::{translation, window::Window, Surface};
 
 pub struct Camera {
     pub bind_group: CameraBindGroup,

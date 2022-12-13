@@ -40,13 +40,10 @@ fn layer<F: FnMut(u16, Matrix3<f64>)>(
 }
 
 struct Fragment {
-    color: Color,
     branch: Vec<(u16, u16)>,
 }
 impl Fragment {
     pub fn parse(s: &str) -> Option<Self> {
-        let (color, s) = s.split_once(';')?;
-        let color = color.trim().parse::<Color>().ok()?;
         let branch = s
             .split(',')
             .map(|v| v.split_once('+').unwrap_or((v, "0")))
@@ -57,7 +54,7 @@ impl Fragment {
                 )
             })
             .collect();
-        Some(Fragment { color, branch })
+        Some(Fragment { branch })
     }
 }
 
@@ -96,7 +93,7 @@ impl TilingGenerator {
         }
         for i in 0..20 {
             let j = 39 - i;
-            index.extend_from_slice(&[i, i + 1, j, i + 1, j, j - 1]);
+            index.extend_from_slice(&[i + 1, i, j, i + 1, j, j - 1]);
         }
 
         let data = s.lines().filter_map(Fragment::parse).collect();
@@ -111,11 +108,11 @@ impl TilingGenerator {
         std::fs::read_to_string(path).map(|s| Self::new(&s))
     }
 
-    pub fn generate(&self, depth: usize) -> (Vec<Vertex>, Vec<u32>) {
+    pub fn generate(&self, colors: &[Color], depth: usize) -> (Vec<Vertex>, Vec<u32>) {
         let mut vertex = Vec::new();
         let mut index = Vec::new();
         let push = |id, origin: Matrix3<f64>| {
-            let color = self.data[id as usize].color.into();
+            let color = colors[id as usize].into();
             let origin = origin.cast().unwrap();
             let idx = vertex.len() as u32;
 

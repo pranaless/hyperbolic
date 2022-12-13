@@ -4,7 +4,7 @@ use cgmath::Vector2;
 use parking_lot::Mutex;
 use wgpu::{Device, Queue};
 
-use crate::Window;
+use crate::window::Window;
 
 pub struct State {
     pub device: Device,

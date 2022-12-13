@@ -3,8 +3,8 @@ use std::str::FromStr;
 
 use bytemuck::{Pod, Zeroable};
 use cgmath::{InnerSpace, Matrix3, Vector2, Vector3};
+use log::warn;
 use parking_lot::Mutex;
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use wasm_bindgen::prelude::wasm_bindgen;
 use wgpu::util::DeviceExt;
 use wgpu::Device;
@@ -20,7 +20,7 @@ use camera::Camera;
 use pipeline::{Pipeline, Projection};
 use surface::{State, Surface};
 use tiling::TilingGenerator;
-use window::AppWindow;
+use window::{AppWindow, Window};
 
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
@@ -97,11 +97,6 @@ impl Mesh {
     }
 }
 
-fn hyperpoint(x: f32, y: f32) -> Vector3<f32> {
-    let w = (1.0 + x * x + y * y).sqrt();
-    Vector3::new(x, y, w)
-}
-
 pub fn translation(pos: Vector2<f64>) -> Matrix3<f64> {
     let w = (1.0 + pos.magnitude2()).sqrt();
     let col = (pos / (w + 1.0)).extend(1.0);
@@ -112,10 +107,16 @@ pub fn translation(pos: Vector2<f64>) -> Matrix3<f64> {
     )
 }
 
-pub trait Window: HasRawWindowHandle + HasRawDisplayHandle {
-    fn size(&self) -> Vector2<u32>;
-    fn request_redraw(&self);
-}
+#[rustfmt::skip]
+const COLORS: &[Color] = &[
+    Color { r: 255, g:   0, b:   0 },
+    Color { r: 176, g: 196, b: 222 },
+    Color { r:  48, g: 191, b: 190 },
+    Color { r: 141, g: 217, b: 205 },
+    Color { r:  13, g: 152, b: 187 },
+    Color { r:  71, g: 171, b: 205 },
+    Color { r:  17, g: 100, b: 179 },
+];
 
 #[wasm_bindgen]
 pub struct App {
@@ -125,7 +126,7 @@ pub struct App {
     camera: Mutex<Camera>,
 
     tiling: TilingGenerator,
-    mesh: Mutex<Mesh>,
+    mesh: Mesh,
 }
 #[wasm_bindgen]
 impl App {
@@ -144,7 +145,7 @@ impl App {
         );
 
         let tiling = TilingGenerator::new(include_str!("4,5-tiling.txt"));
-        let mesh = Mesh::new(&state.device, tiling.generate(5));
+        let mesh = Mesh::new(&state.device, tiling.generate(COLORS, 5));
 
         App {
             state,
@@ -152,7 +153,7 @@ impl App {
             pipeline,
             camera: Mutex::new(camera),
             tiling,
-            mesh: Mutex::new(mesh),
+            mesh,
         }
     }
 
@@ -176,9 +177,8 @@ impl App {
         self.camera.lock().reset_delta();
     }
 
-    pub fn set_depth(&self, depth: usize) {
-        let mut mesh = self.mesh.lock();
-        *mesh = Mesh::new(&self.state.device, self.tiling.generate(depth));
+    pub fn set_depth(&mut self, depth: usize) {
+        self.mesh = Mesh::new(&self.state.device, self.tiling.generate(COLORS, depth));
         self.surface.window.request_redraw();
     }
 
@@ -187,7 +187,10 @@ impl App {
             "poincare" => Projection::Poincare,
             "klein" => Projection::Klein,
             "hyperboloid" => Projection::Hyperboloid,
-            _ => return,
+            _ => {
+                warn!("{} is not a valid projection", name);
+                return;
+            }
         };
         self.pipeline = Pipeline::with_layout(
             &self.state.device,
@@ -212,7 +215,6 @@ impl App {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let camera = self.camera.lock();
-            let mesh = self.mesh.lock();
 
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -228,9 +230,9 @@ impl App {
             });
             rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, &camera.bind_group, &[]);
-            rpass.set_vertex_buffer(0, mesh.vertex.slice(..));
-            rpass.set_index_buffer(mesh.index.slice(..), wgpu::IndexFormat::Uint32);
-            rpass.draw_indexed(0..(mesh.index.size() / 4) as _, 0, 0..1);
+            rpass.set_vertex_buffer(0, self.mesh.vertex.slice(..));
+            rpass.set_index_buffer(self.mesh.index.slice(..), wgpu::IndexFormat::Uint32);
+            rpass.draw_indexed(0..(self.mesh.index.size() / 4) as _, 0, 0..1);
         }
         self.state.queue.submit(Some(encoder.finish()));
         frame.present();
