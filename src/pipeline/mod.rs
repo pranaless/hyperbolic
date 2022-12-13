@@ -1,8 +1,24 @@
-use std::ops::Deref;
+use std::{ops::Deref, sync::Arc};
 
 use wgpu::Device;
 
 use crate::camera::CameraBindGroupLayout;
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Projection {
+    Poincare,
+    Klein,
+    Hyperboloid,
+}
+impl Projection {
+    pub fn shader_source(&self) -> wgpu::ShaderModuleDescriptor {
+        match self {
+            Projection::Poincare => wgpu::include_wgsl!("poincare.wgsl"),
+            Projection::Klein => wgpu::include_wgsl!("klein.wgsl"),
+            Projection::Hyperboloid => wgpu::include_wgsl!("hyperboloid.wgsl"),
+        }
+    }
+}
 
 pub struct PipelineLayout {
     pub pipeline: wgpu::PipelineLayout,
@@ -23,13 +39,26 @@ impl PipelineLayout {
 }
 
 pub struct Pipeline {
-    pub layout: PipelineLayout,
+    pub layout: Arc<PipelineLayout>,
     inner: wgpu::RenderPipeline,
 }
 impl Pipeline {
-    pub fn new(device: &Device, swapchain_format: wgpu::TextureFormat) -> Self {
-        let layout = PipelineLayout::new(device);
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+    pub fn new(
+        device: &Device,
+        projection: Projection,
+        swapchain_format: wgpu::TextureFormat,
+    ) -> Self {
+        let layout = Arc::new(PipelineLayout::new(device));
+        Self::with_layout(device, layout, projection, swapchain_format)
+    }
+
+    pub fn with_layout(
+        device: &Device,
+        layout: Arc<PipelineLayout>,
+        projection: Projection,
+        swapchain_format: wgpu::TextureFormat,
+    ) -> Self {
+        let shader = device.create_shader_module(projection.shader_source());
         Pipeline {
             inner: device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,

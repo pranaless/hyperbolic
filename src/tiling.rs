@@ -1,8 +1,8 @@
 use std::{f64::consts::TAU, path::Path};
 
-use cgmath::{Matrix3, One, Rad, Vector2};
+use cgmath::{Matrix3, One, Rad, Vector2, Vector3};
 
-use crate::{hyperpoint, translation, Color, Vertex};
+use crate::{translation, Color, Vertex};
 
 struct State<'a, F> {
     rotation_matrix: Matrix3<f64>,
@@ -61,13 +61,50 @@ impl Fragment {
     }
 }
 
+fn kleinpoint(x: f32, y: f32) -> Vector3<f32> {
+    let w = 1.0 / (1.0 - x * x - y * y).sqrt();
+    Vector3::new(x * w, y * w, w)
+}
+
 pub struct TilingGenerator {
+    len: f64,
+    tile: (Vec<Vector3<f32>>, Vec<u32>),
     data: Vec<Fragment>,
 }
 impl TilingGenerator {
+    const CENTRAL_ANGLE: f64 = TAU / 4.0;
+    const INNER_ANGLE: f64 = TAU / 5.0;
+
     pub fn new(s: &str) -> Self {
+        let len = 2.0 * (1.0 + Self::INNER_ANGLE.cos()) / (1.0 - Self::CENTRAL_ANGLE.cos()) - 1.0;
+        let len = (len * len - 1.0).sqrt(); // conv cosh -> sinh
+
+        let mut vertex = Vec::with_capacity(40);
+        let mut index = Vec::new();
+
+        for i in 0..10 {
+            vertex.push(kleinpoint(-0.46, -0.46 + 0.092 * (i as f32)));
+        }
+        for i in 0..10 {
+            vertex.push(kleinpoint(-0.46 + 0.092 * (i as f32), 0.46));
+        }
+        for i in 0..10 {
+            vertex.push(kleinpoint(0.46, 0.46 - 0.092 * (i as f32)));
+        }
+        for i in 0..10 {
+            vertex.push(kleinpoint(0.46 - 0.092 * (i as f32), -0.46));
+        }
+        for i in 0..20 {
+            let j = 39 - i;
+            index.extend_from_slice(&[i, i + 1, j, i + 1, j, j - 1]);
+        }
+
         let data = s.lines().filter_map(Fragment::parse).collect();
-        TilingGenerator { data }
+        TilingGenerator {
+            len,
+            tile: (vertex, index),
+            data,
+        }
     }
 
     pub fn open<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
@@ -75,48 +112,30 @@ impl TilingGenerator {
     }
 
     pub fn generate(&self, depth: usize) -> (Vec<Vertex>, Vec<u32>) {
-        const CENTRAL_ANGLE: f64 = TAU / 4.0;
-        const INNER_ANGLE: f64 = TAU / 5.0;
-        let len = 2.0 * (1.0 + INNER_ANGLE.cos()) / (1.0 - CENTRAL_ANGLE.cos()) - 1.0;
-        let len = (len * len - 1.0).sqrt(); // conv cosh -> sinh
-
         let mut vertex = Vec::new();
         let mut index = Vec::new();
         let push = |id, origin: Matrix3<f64>| {
             let color = self.data[id as usize].color.into();
             let origin = origin.cast().unwrap();
             let idx = vertex.len() as u32;
-            #[rustfmt::skip]
-            let pts = [
-                origin * hyperpoint(-0.5, -0.5),
-                origin * hyperpoint(-0.5,  0.5),
-                origin * hyperpoint( 0.5, -0.5),
-                origin * hyperpoint( 0.5,  0.5),
-            ];
-            let pts = [
-                Vertex {
-                    pos: pts[0].into(),
+
+            let v = self
+                .tile
+                .0
+                .iter()
+                .map(|&v| Vertex {
+                    pos: (origin * v).into(),
                     color,
-                },
-                Vertex {
-                    pos: pts[1].into(),
-                    color,
-                },
-                Vertex {
-                    pos: pts[2].into(),
-                    color,
-                },
-                Vertex {
-                    pos: pts[3].into(),
-                    color,
-                },
-            ];
-            vertex.extend_from_slice(&pts);
-            index.extend_from_slice(&[idx, idx + 1, idx + 2, idx + 2, idx + 1, idx + 3]);
+                })
+                .collect::<Vec<_>>();
+            let i = self.tile.1.iter().map(|&i| idx + i).collect::<Vec<_>>();
+
+            vertex.extend_from_slice(&v);
+            index.extend_from_slice(&i);
         };
         let mut state = State {
-            rotation_matrix: Matrix3::from_angle_z(Rad(CENTRAL_ANGLE)),
-            forward_transform: translation(Vector2::new(len, 0.0)),
+            rotation_matrix: Matrix3::from_angle_z(Rad(Self::CENTRAL_ANGLE)),
+            forward_transform: translation(Vector2::new(self.len, 0.0)),
             data: &self.data,
             push,
         };

@@ -19,7 +19,7 @@ pub mod tiling;
 pub mod window;
 
 use camera::Camera;
-use pipeline::Pipeline;
+use pipeline::{Pipeline, Projection};
 use surface::{State, Surface};
 use tiling::TilingGenerator;
 use window::AppWindow;
@@ -134,7 +134,11 @@ impl App {
     #[wasm_bindgen(constructor)]
     pub async fn new(window: AppWindow) -> Self {
         let (state, surface) = Surface::new(window).await;
-        let pipeline = Pipeline::new(&state.device, surface.swapchain_format);
+        let pipeline = Pipeline::new(
+            &state.device,
+            Projection::Poincare,
+            surface.swapchain_format,
+        );
         let camera = Camera::new(
             &state.device,
             &pipeline.layout.camera,
@@ -177,6 +181,22 @@ impl App {
     pub fn set_depth(&self, depth: usize) {
         let mut mesh = self.mesh.lock();
         *mesh = Mesh::new(&self.state.device, self.tiling.generate(depth));
+        self.surface.window.request_redraw();
+    }
+
+    pub fn set_projection(&mut self, name: &str) {
+        let projection = match name {
+            "poincare" => Projection::Poincare,
+            "klein" => Projection::Klein,
+            "hyperboloid" => Projection::Hyperboloid,
+            _ => return,
+        };
+        self.pipeline = Pipeline::with_layout(
+            &self.state.device,
+            self.pipeline.layout.clone(),
+            projection,
+            self.surface.swapchain_format,
+        );
         self.surface.window.request_redraw();
     }
 
