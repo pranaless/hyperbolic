@@ -14,8 +14,6 @@ pub mod pipeline;
 pub mod surface;
 pub mod tiling;
 
-#[cfg_attr(target_arch = "wasm32", path = "window/web.rs")]
-#[cfg_attr(not(target_arch = "wasm32"), path = "window/desktop.rs")]
 pub mod window;
 
 use camera::Camera;
@@ -237,76 +235,4 @@ impl App {
         self.state.queue.submit(Some(encoder.finish()));
         frame.present();
     }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub async fn run(event_loop: EventLoop<()>, window: AppWindow) {
-    use winit::event::{ElementState, Event, KeyboardInput, MouseButton, WindowEvent};
-    use winit::event_loop::EventLoop;
-
-    let app = App::new(window).await;
-
-    let mut track = false;
-    let mut depth = 5;
-
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = winit::event_loop::ControlFlow::Wait;
-        match event {
-            Event::WindowEvent {
-                event: WindowEvent::Resized(size),
-                ..
-            } => app.resize(Vector2::new(size.width, size.height)),
-            Event::WindowEvent {
-                event:
-                    WindowEvent::KeyboardInput {
-                        input:
-                            KeyboardInput {
-                                scancode,
-                                state: ElementState::Pressed,
-                                ..
-                            },
-                        ..
-                    },
-                ..
-            } => {
-                match scancode {
-                    103 /* Up */ => {
-                        depth += 1;
-                        app.set_depth(depth);
-                    }
-                    108 /* Up */ => {
-                        depth -= 1;
-                        app.set_depth(depth);
-                    }
-                    _ => {}
-                }
-            }
-            Event::WindowEvent {
-                event:
-                    WindowEvent::MouseInput {
-                        state,
-                        button: MouseButton::Left,
-                        ..
-                    },
-                ..
-            } => track = ElementState::Pressed == state,
-            Event::WindowEvent {
-                event:
-                    WindowEvent::CursorMoved {
-                        position: winit::dpi::PhysicalPosition { x, y },
-                        ..
-                    },
-                ..
-            } if track => app
-                .camera
-                .lock()
-                .update_delta(&app.surface, Vector2::new(x, -y)),
-            Event::RedrawRequested(_) => app.draw(),
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => *control_flow = winit::event_loop::ControlFlow::Exit,
-            _ => {}
-        }
-    })
 }
