@@ -1,6 +1,6 @@
 use std::{f64::consts::TAU, path::Path};
 
-use cgmath::{BaseFloat, Matrix3, One, Rad, Vector2, Vector3};
+use cgmath::{BaseFloat, InnerSpace, Matrix2, Matrix3, One, Rad, Vector2, Vector3, VectorSpace};
 
 use crate::{translation, Color, Vertex};
 
@@ -58,13 +58,9 @@ impl Fragment {
     }
 }
 
-fn kleinpoint<S: BaseFloat>(x: S, y: S) -> Vector3<S> {
-    let w = S::one() / (S::one() - x * x - y * y).sqrt();
-    Vector3::new(x * w, y * w, w)
-}
-
-fn lerp<S: BaseFloat>(a: S, b: S, p: S) -> S {
-    a * (S::one() - p) + b * p
+fn kleinpoint<S: BaseFloat>(v: Vector2<S>) -> Vector3<S> {
+    let w = S::one() / (S::one() - v.magnitude2()).sqrt();
+    v.extend(S::one()) * w
 }
 
 struct Mesh<S> {
@@ -85,21 +81,17 @@ impl TilingGenerator {
         let mut vertex = Vec::with_capacity(4 * subdiv);
         let mut index = Vec::with_capacity(6 * subdiv);
 
-        for i in 0..subdiv {
-            let p = S::from(i).unwrap() / S::from(subdiv).unwrap();
-            vertex.push(kleinpoint(-side, lerp(-side, side, p)));
-        }
-        for i in 0..subdiv {
-            let p = S::from(i).unwrap() / S::from(subdiv).unwrap();
-            vertex.push(kleinpoint(lerp(-side, side, p), side));
-        }
-        for i in 0..subdiv {
-            let p = S::from(i).unwrap() / S::from(subdiv).unwrap();
-            vertex.push(kleinpoint(side, lerp(side, -side, p)));
-        }
-        for i in 0..subdiv {
-            let p = S::from(i).unwrap() / S::from(subdiv).unwrap();
-            vertex.push(kleinpoint(lerp(side, -side, p), -side));
+        let rotation_matrix = Matrix2::from_angle(Rad(S::from(Self::CENTRAL_ANGLE).unwrap()));
+
+        let mut from;
+        let mut to = Vector2::new(-side, -side);
+        for _ in 0..4 {
+            from = to;
+            to = rotation_matrix * from;
+            for i in 0..subdiv {
+                let p = S::from(i).unwrap() / S::from(subdiv).unwrap();
+                vertex.push(kleinpoint(from.lerp(to, p)));
+            }
         }
         for i in 0..2 * subdiv as u32 {
             let j = 4 * subdiv as u32 - i - 1;
