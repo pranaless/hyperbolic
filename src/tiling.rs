@@ -1,6 +1,6 @@
 use std::{f64::consts::TAU, path::Path};
 
-use cgmath::{Matrix3, One, Rad, Vector2, Vector3};
+use cgmath::{BaseFloat, Matrix3, One, Rad, Vector2, Vector3};
 
 use crate::{translation, Color, Vertex};
 
@@ -58,50 +58,66 @@ impl Fragment {
     }
 }
 
-fn kleinpoint(x: f32, y: f32) -> Vector3<f32> {
-    let w = 1.0 / (1.0 - x * x - y * y).sqrt();
+fn kleinpoint<S: BaseFloat>(x: S, y: S) -> Vector3<S> {
+    let w = S::one() / (S::one() - x * x - y * y).sqrt();
     Vector3::new(x * w, y * w, w)
+}
+
+fn lerp<S: BaseFloat>(a: S, b: S, p: S) -> S {
+    a * (S::one() - p) + b * p
+}
+
+struct Mesh<S> {
+    vertex: Vec<S>,
+    index: Vec<u32>,
 }
 
 pub struct TilingGenerator {
     len: f64,
-    tile: (Vec<Vector3<f32>>, Vec<u32>),
+    tile: Mesh<Vector3<f32>>,
     data: Vec<Fragment>,
 }
 impl TilingGenerator {
     const CENTRAL_ANGLE: f64 = TAU / 4.0;
     const INNER_ANGLE: f64 = TAU / 5.0;
 
-    pub fn new(s: &str) -> Self {
-        let len = 2.0 * (1.0 + Self::INNER_ANGLE.cos()) / (1.0 - Self::CENTRAL_ANGLE.cos()) - 1.0;
-        let len = (len * len - 1.0).sqrt(); // conv cosh -> sinh
+    fn generate_tile<S: BaseFloat>(side: S, subdiv: usize) -> Mesh<Vector3<S>> {
+        let mut vertex = Vec::with_capacity(4 * subdiv);
+        let mut index = Vec::with_capacity(6 * subdiv);
 
-        let mut vertex = Vec::with_capacity(40);
-        let mut index = Vec::new();
-
-        for i in 0..10 {
-            vertex.push(kleinpoint(-0.46, -0.46 + 0.092 * (i as f32)));
+        for i in 0..subdiv {
+            let p = S::from(i).unwrap() / S::from(subdiv).unwrap();
+            vertex.push(kleinpoint(-side, lerp(-side, side, p)));
         }
-        for i in 0..10 {
-            vertex.push(kleinpoint(-0.46 + 0.092 * (i as f32), 0.46));
+        for i in 0..subdiv {
+            let p = S::from(i).unwrap() / S::from(subdiv).unwrap();
+            vertex.push(kleinpoint(lerp(-side, side, p), side));
         }
-        for i in 0..10 {
-            vertex.push(kleinpoint(0.46, 0.46 - 0.092 * (i as f32)));
+        for i in 0..subdiv {
+            let p = S::from(i).unwrap() / S::from(subdiv).unwrap();
+            vertex.push(kleinpoint(side, lerp(side, -side, p)));
         }
-        for i in 0..10 {
-            vertex.push(kleinpoint(0.46 - 0.092 * (i as f32), -0.46));
+        for i in 0..subdiv {
+            let p = S::from(i).unwrap() / S::from(subdiv).unwrap();
+            vertex.push(kleinpoint(lerp(side, -side, p), -side));
         }
-        for i in 0..20 {
+        for i in 0..2 * subdiv as u32 {
             let j = 39 - i;
             index.extend_from_slice(&[i + 1, i, j, i + 1, j, j - 1]);
         }
 
+        Mesh { vertex, index }
+    }
+
+    pub fn new(s: &str) -> Self {
+        let len = (1.0 + Self::INNER_ANGLE.cos()) / (1.0 - Self::CENTRAL_ANGLE.cos());
+        let side = (1.0 - 1.0 / len).sqrt() as f32;
+        let len = 2.0 * (len * len - len).sqrt();
+
+        let tile = Self::generate_tile(side, 10);
+
         let data = s.lines().filter_map(Fragment::parse).collect();
-        TilingGenerator {
-            len,
-            tile: (vertex, index),
-            data,
-        }
+        TilingGenerator { len, tile, data }
     }
 
     pub fn open<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
@@ -118,14 +134,14 @@ impl TilingGenerator {
 
             let v = self
                 .tile
-                .0
+                .vertex
                 .iter()
                 .map(|&v| Vertex {
                     pos: (origin * v).into(),
                     color,
                 })
                 .collect::<Vec<_>>();
-            let i = self.tile.1.iter().map(|&i| idx + i).collect::<Vec<_>>();
+            let i = self.tile.index.iter().map(|&i| idx + i).collect::<Vec<_>>();
 
             vertex.extend_from_slice(&v);
             index.extend_from_slice(&i);
