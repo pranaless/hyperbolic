@@ -131,7 +131,7 @@ pub struct App {
 #[wasm_bindgen]
 impl App {
     #[wasm_bindgen(constructor)]
-    pub async fn new(window: AppWindow) -> Self {
+    pub async fn new(tiling: TilingGenerator, window: AppWindow) -> Self {
         let (state, surface) = Surface::new(window).await;
         let pipeline = Pipeline::new(
             &state.device,
@@ -144,7 +144,6 @@ impl App {
             surface.aspect_ratio(),
         );
 
-        let tiling = TilingGenerator::new(include_str!("4,5-tiling.txt"));
         let mesh = Mesh::new(&state.device, tiling.generate(COLORS, 5));
 
         App {
@@ -175,6 +174,12 @@ impl App {
 
     pub fn reset_delta(&self) {
         self.camera.lock().reset_delta();
+    }
+
+    pub fn set_tiling(&mut self, tiling: TilingGenerator, depth: usize) {
+        self.tiling = tiling;
+        self.mesh = Mesh::new(&self.state.device, self.tiling.generate(COLORS, depth));
+        self.surface.window.request_redraw();
     }
 
     pub fn set_depth(&mut self, depth: usize) {

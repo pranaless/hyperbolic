@@ -29,3 +29,21 @@ html, body {
   width: 280px;
   margin: 0 10px;
 }
+
+#schlafliP, #schlafliQ {
+  width: 280px;
+  margin: 0 10px 5px;
+}
+
+#tiling {
+  box-sizing: border-box;
+  width: 280px;
+  height: 150px;
+  resize: vertical;
+  margin: 0 10px;
+}
+
+#submitTiling {
+  width: 280px;
+  margin: 10px 10px 0;
+}
