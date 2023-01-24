@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Hyperbolic space</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <div id="outer-view">
+        <canvas id="view"></canvas>
+      </div>
+      <div class="sidebar">
+        <div class="label">Model</div>
+        <div>
+          <input type="radio" name="projection" class="projection" value="poincare" id="projPoincare" checked />
+          <label for="projPoincare">Poincare</label>
+        </div>
+        <div>
+          <input type="radio" name="projection" class="projection" value="klein" id="projKlein" />
+          <label for="projKlein">Klein</label>
+        </div>
+        <div>
+          <input type="radio" name="projection" class="projection" value="hyperboloid" id="projHyperboloid" />
+          <label for="projHyperboloid">Hyperboloid</label>
+        </div>
+
+        <div class="label">Depth</div>
+        <input id="depth" type="range" min="0" max="7" step="1" />
+      </div>
+    </div>
+    <script src="./main.js" type="module"></script>
+  </body>
+</html>
