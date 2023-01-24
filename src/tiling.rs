@@ -102,7 +102,7 @@ impl TilingGenerator {
             vertex.push(kleinpoint(lerp(side, -side, p), -side));
         }
         for i in 0..2 * subdiv as u32 {
-            let j = 39 - i;
+            let j = 4 * subdiv as u32 - i - 1;
             index.extend_from_slice(&[i + 1, i, j, i + 1, j, j - 1]);
         }
 
@@ -114,7 +114,7 @@ impl TilingGenerator {
         let side = (1.0 - 1.0 / len).sqrt() as f32;
         let len = 2.0 * (len * len - len).sqrt();
 
-        let tile = Self::generate_tile(side, 10);
+        let tile = Self::generate_tile(side, 4);
 
         let data = s.lines().filter_map(Fragment::parse).collect();
         TilingGenerator { len, tile, data }
