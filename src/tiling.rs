@@ -4,6 +4,8 @@ use cgmath::{BaseFloat, InnerSpace, Matrix2, Matrix3, One, Rad, Vector2, Vector3
 
 use crate::{translation, Color, Vertex};
 
+const TURN_AROUND: Matrix3<f64> = Matrix3::new(-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0);
+
 struct State<'a, F> {
     rotation_matrix: Matrix3<f64>,
     forward_transform: Matrix3<f64>,
@@ -32,7 +34,7 @@ fn layer<F: FnMut(u16, Matrix3<f64>)>(
     if layers != 0 {
         state
             .iter()
-            .filter(|(i, _)| id == 0 || *i != 2)
+            .filter(|(i, _)| id == 0 || *i != 0)
             .map(|(i, tr)| (state.data[id as usize].branch[(i + rot as usize) % 4], tr))
             .filter(|(id, _)| id.0 != 0)
             .for_each(|(id, tr1)| layer(state, tr * tr1, id.0 - 1, id.1, layers - 1));
@@ -68,45 +70,54 @@ struct Mesh<S> {
     index: Vec<u32>,
 }
 
+/// Generate any-sided polygon in the hyperbolic plane.
+fn generate_polygon(sides: usize, side: f64, subdiv: usize) -> Mesh<Vector3<f64>> {
+    let central_angle = TAU / sides as f64;
+
+    let points = sides * subdiv;
+    debug_assert!(points % 2 == 0);
+    let mut vertex = Vec::with_capacity(points);
+    let mut index = Vec::with_capacity(3 * points);
+
+    let rotation_matrix = Matrix2::from_angle(Rad(central_angle));
+
+    let (s, c) = (0.5 * central_angle).sin_cos();
+
+    let mut from;
+    let mut to = Vector2::new(-side * c, -side * s);
+    for _ in 0..sides {
+        from = to;
+        to = rotation_matrix * from;
+        for i in 0..subdiv {
+            let p = i as f64 / subdiv as f64;
+            vertex.push(kleinpoint(from.lerp(to, p)));
+        }
+    }
+    for i in 0..points as u32 / 2 {
+        let j = points as u32 - i - 1;
+        index.extend_from_slice(&[i + 1, i, j, i + 1, j, j - 1]);
+    }
+
+    Mesh { vertex, index }
+}
+
 pub struct TilingGenerator {
     len: f64,
-    tile: Mesh<Vector3<f32>>,
+    tile: Mesh<Vector3<f64>>,
     data: Vec<Fragment>,
 }
 impl TilingGenerator {
-    const CENTRAL_ANGLE: f64 = TAU / 4.0;
-    const INNER_ANGLE: f64 = TAU / 5.0;
-
-    fn generate_tile<S: BaseFloat>(side: S, subdiv: usize) -> Mesh<Vector3<S>> {
-        let mut vertex = Vec::with_capacity(4 * subdiv);
-        let mut index = Vec::with_capacity(6 * subdiv);
-
-        let rotation_matrix = Matrix2::from_angle(Rad(S::from(Self::CENTRAL_ANGLE).unwrap()));
-
-        let mut from;
-        let mut to = Vector2::new(-side, -side);
-        for _ in 0..4 {
-            from = to;
-            to = rotation_matrix * from;
-            for i in 0..subdiv {
-                let p = S::from(i).unwrap() / S::from(subdiv).unwrap();
-                vertex.push(kleinpoint(from.lerp(to, p)));
-            }
-        }
-        for i in 0..2 * subdiv as u32 {
-            let j = 4 * subdiv as u32 - i - 1;
-            index.extend_from_slice(&[i + 1, i, j, i + 1, j, j - 1]);
-        }
-
-        Mesh { vertex, index }
-    }
+    const HALF_CENTRAL_ANGLE: f64 = TAU / 8.0;
+    const HALF_INNER_ANGLE: f64 = TAU / 10.0;
 
     pub fn new(s: &str) -> Self {
-        let len = (1.0 + Self::INNER_ANGLE.cos()) / (1.0 - Self::CENTRAL_ANGLE.cos());
-        let side = (1.0 - 1.0 / len).sqrt() as f32;
-        let len = 2.0 * (len * len - len).sqrt();
+        let v = Self::HALF_INNER_ANGLE.cos() / Self::HALF_CENTRAL_ANGLE.sin();
+        debug_assert!(v >= 1.0);
+        let w = (v * v - 1.0).sqrt();
+        let side = w / v / Self::HALF_CENTRAL_ANGLE.cos();
+        let len = 2.0 * v * w;
 
-        let tile = Self::generate_tile(side, 4);
+        let tile = generate_polygon(4, side, 4);
 
         let data = s.lines().filter_map(Fragment::parse).collect();
         TilingGenerator { len, tile, data }
@@ -121,7 +132,6 @@ impl TilingGenerator {
         let mut index = Vec::new();
         let push = |id, origin: Matrix3<f64>| {
             let color = colors[id as usize].into();
-            let origin = origin.cast().unwrap();
             let idx = vertex.len() as u32;
 
             let v = self
@@ -129,7 +139,7 @@ impl TilingGenerator {
                 .vertex
                 .iter()
                 .map(|&v| Vertex {
-                    pos: (origin * v).into(),
+                    pos: (origin * v).cast::<f32>().unwrap().into(),
                     color,
                 })
                 .collect::<Vec<_>>();
@@ -139,8 +149,8 @@ impl TilingGenerator {
             index.extend_from_slice(&i);
         };
         let mut state = State {
-            rotation_matrix: Matrix3::from_angle_z(Rad(Self::CENTRAL_ANGLE)),
-            forward_transform: translation(Vector2::new(self.len, 0.0)),
+            rotation_matrix: Matrix3::from_angle_z(Rad(2.0 * Self::HALF_CENTRAL_ANGLE)),
+            forward_transform: translation(Vector2::new(self.len, 0.0)) * TURN_AROUND,
             data: &self.data,
             push,
         };
